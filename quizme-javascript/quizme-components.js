@@ -17,15 +17,7 @@
  * Updated for Modern Blockly Compatibility.
  */
 
-/**
- * Creates Blockly.ComponentTypes for App Inventor components.
- * Updated for Modern Blockly Compatibility.
- */
 
-/*
- * Creates Blockly.ComponentTypes for App Inventor components.
- * Updated for Modern Blockly Compatibility.
- */
 
 // Safety check for DEBUG global
 var DEBUG = (typeof GLOBAL_DEBUG !== 'undefined') ? GLOBAL_DEBUG : false;
@@ -108,19 +100,26 @@ Blockly.Quizme.addComponent = function(json, name, uid) {
   }
 
   // 3. Map Properties (from both 'properties' and 'blockProperties' arrays)
+  // COMBINE BOTH LISTS (Designer properties + Block properties)
   var allProps = (prototype.properties || []).concat(prototype.blockProperties || []);
+
   for (var k = 0; k < allProps.length; k++) {
     var prop = allProps[k];
+    if (!prop || !prop.name) continue;
+
+    // Store the property metadata
     Blockly.ComponentTypes[typeName].properties[prop.name] = prop;
-    
-    // Add to lists used for dropdown menus
-    if (prop.rw === "read-write" || prop.rw === "read-only") {
+
+    // Map to Getters/Setters lists
+    var rw = prop.rw ? prop.rw.toLowerCase() : "read-write";
+    if (rw === "read-write" || rw === "read-only") {
       Blockly.ComponentTypes[typeName].getPropertyList.push(prop.name);
     }
-    if (prop.rw === "read-write" || prop.rw === "write-only") {
+    if (rw === "read-write" || rw === "write-only") {
       Blockly.ComponentTypes[typeName].setPropertyList.push(prop.name);
     }
   }
+  
 };
 
 

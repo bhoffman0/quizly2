@@ -100,6 +100,8 @@ var maindocument = parent.document;
 var MAX_TRIES = 6;
 var answer_tries = 0;     //  How many wrong answers
 
+
+
 /**
  * THE REPAIR: Ensures any object (Block or Workspace) that needs the 
  * component database can find it.
@@ -127,14 +129,55 @@ var answer_tries = 0;     //  How many wrong answers
             Blockly.common.getComponentDatabase = function() { return dummyComponentDb; };
         }
     }
+
+    if (typeof Blockly !== 'undefined' && Blockly.Workspace) {
+        // SHIM THE PROCEDURE DATABASE
+        // This prevents the 'getMenuItems' crash on procedure call blocks
+        Blockly.Workspace.prototype.getProcedureMap = function() {
+            return {
+                getProcedures: function() { return []; },
+                getMenuItems: function() { return []; }, // THIS FIXES YOUR ERROR
+                getProcedure: function() { return null; }
+            };
+        };
+
+        // Some versions of blockly-all use this name instead:
+        Blockly.Workspace.prototype.getProcedureManager = function() {
+            return this.getProcedureMap();
+        };
+    }
 })();
 
-// RE-EXPOSE HELLO: Immediately define this so the HTML can find it
-Blockly.hello = function(quizname) {
-  if (DEBUG) console.log("RAM: Blockly.hello called for " + quizname);
-  showQuiz(quizname);
-};
 
+// new combined blockly.hello
+
+Blockly.hello = function(arg1, arg2) {
+  var commands = ['submit', 'hint', 'showquiz', 'submitoneshot', 'showjavascript'];
+  
+  // Check if arg1 is a command
+  if (commands.indexOf(arg1) !== -1) {
+    var command = arg1;
+    // FIX: If arg2 is missing, use the global quiz name
+    var quizname = arg2 || Blockly.Quizme.quizName; 
+    
+    if (DEBUG) console.log("RAM: Blockly.hello command: " + command + " for " + quizname);
+    
+    if (command == 'submit')
+      submitNewToggle(quizname);
+    else if (command == 'hint') 
+      giveHint();
+    else if (command == 'showquiz')
+      showQuiz(quizname);
+    else if (command == 'submitoneshot')
+      submitOneShot();
+    else if (command == 'showjavascript')
+      showJavaScript();
+  } else {
+    // It's not a command, so treat arg1 as the quizname (from dropdown)
+    if (DEBUG) console.log("RAM: Blockly.hello routing to showQuiz: " + arg1);
+    showQuiz(arg1);
+  }
+};
 
 // This makes the shim available to the internal blockly-all.js logic
 window.getComponentDatabase = function() { return dummyComponentDb; };
@@ -278,21 +321,51 @@ var dummyComponentDb = {
     return { name: methodName, parameters: [], typeName: typeName, returnType: 'any' };
   },
   getPropertyForType: function(typeName, propName) {
-    var type = this.getComponentType(typeName);
-    if (type && type.properties && type.properties[propName]) {
-      return type.properties[propName];
+  var type = this.getComponentType(typeName);
+  if (!type || !type.properties) return { name: propName, type: 'any' };
+
+  // 1. Direct match (Case Sensitive)
+  if (type.properties[propName]) {
+    return type.properties[propName];
+  }
+
+  // 2. Case-Insensitive Match (e.g., BackgroundColor vs backgroundColor)
+  var searchName = propName.toLowerCase();
+  for (var key in type.properties) {
+    if (key.toLowerCase() === searchName) {
+      return type.properties[key];
     }
-    return { name: propName, type: 'any', writable: 'true' };
-  },
+  }
+
+  // 3. Fallback: Return a dummy object so the renderer doesn't crash
+  if (DEBUG) console.warn("RAM: Property fallback used for: " + typeName + "." + propName);
+  return {
+    name: propName,
+    type: 'any',
+    rw: 'read-write'
+  };
+},
   getType: function(instanceName) {
     return instanceName ? instanceName.replace(/[0-9]/g, '') : '';
   },
   getComponentNamesByType: function(typeName) {
     return [[typeName + "1", typeName + "1"]];
   },
+// NEW: Added to fix the property dropdown crash
+  getSetterNamesForType: function(typeName) {
+    var type = this.getComponentType(typeName);
+    return (type && type.setPropertyList) ? type.setPropertyList : [];
+  },
 
-  // FIX: Added the specific missing function from your error log
-  getInternationalizedEventDescription: function(name) { return name; },
+  getGetterNamesForType: function(typeName) {
+    var type = this.getComponentType(typeName);
+    return (type && type.getPropertyList) ? type.getPropertyList : [];
+  },
+
+  // Ensure these return localized names if asked (fallback to key)
+  getInternationalizedPropertyName: function(typeName, propName) {
+    return propName;
+  },
   
   // FIX: Added the rest of the family to prevent the next errors
   getInternationalizedEventName: function(name) { return name; },
@@ -302,7 +375,7 @@ var dummyComponentDb = {
   getInternationalizedPropertyDescription: function(name) { return name; },
   getInternationalizedParameterName: function(name) { return name; },
   getInternationalizedOptionName: function(key, name) { return name; },
-  
+  getInternationalizedEventDescription: function(name) { return name; },
   getOptionList: function(key) { return { options: [], tag: "" }; },
   hasInstance: function(name) { return true; }
 };
@@ -350,19 +423,7 @@ window.getComponentDatabase = function() { return dummyComponentDb; };
 
 
 
-Blockly.hello = function(command, quizname) {
-  if (DEBUG) console.log("RAM: Blockly says " + command);
-  if (command == 'submit')
-    submitNewToggle(quizname);
-  else if (command == 'hint') 
-    giveHint();
-  else if (command == 'showquiz')
-    showQuiz(quizname);
-  else if (command == 'submitoneshot')
-    submitOneShot();
-  else if (command == 'showjavascript')
-    showJavaScript();
-}
+
 
 
 
@@ -816,54 +877,46 @@ function initQuizmeLanguage() {
  */
 function initToolboxBuiltins(language, categories) {
   for (var propname in language) {
-    if (DEBUG) console.log("Adding to Blockly.languageTree " + propname);
-
     if (propname == 'Utilities' || TOPLEVEL_BLOCKS.indexOf(propname) != -1)
       continue;
 
-    // 1. Create the temp workspace
+    // 1. Create a workspace with a stubbed WarningHandler
     var tempWorkspace = new Blockly.Workspace();
-    
-    // 2. SHIM THE WARNING HANDLER: This prevents the crash on blk.dispose()
     tempWorkspace.getWarningHandler = function() {
-      return {
-        checkErrors: function() { return []; },
-        checkDisposedBlock: function() { return; }, // This fixes your current crash
-        updateWarning: function() { return; }
-      };
+      return { checkErrors: function() { return []; }, checkDisposedBlock: function() {} };
     };
-
-    // Attach our other shims
     tempWorkspace.getComponentDatabase = function() { return dummyComponentDb; };
-    
-    var mainWs = Blockly.getMainWorkspace();
-    if (mainWs) {
-      tempWorkspace.svgBlockCanvas_ = mainWs.getCanvas();
+
+    // 2. SAFETY: Override the Block constructor's behavior for this specific instance
+    // We use workspace.newBlock if available, otherwise manual creation
+    var blk;
+    try {
+      // Manually inject the method into the Prototype briefly if needed, 
+      // or attach it to the instance immediately after 'new'
+      blk = new Blockly.Block(tempWorkspace, propname);
+      
+      // FIX: Manually attach the missing method to the instance
+      blk.getTopWorkspace = function() { return tempWorkspace; };
+      blk.getComponentDatabase = function() { return dummyComponentDb; };
+      
+    } catch (e) {
+      // If it crashed during 'new', we have to catch it and try a different way
+      if (DEBUG) console.warn("RAM: Block " + propname + " failed init, forcing methods.");
+      // Some versions of blockly-all require the method on the prototype
+      Blockly.Block.prototype.getTopWorkspace = function() { return this.workspace; };
+      blk = new Blockly.Block(tempWorkspace, propname);
     }
 
-    // 3. Create the block and apply local fixes
-    var blk = new Blockly.Block(tempWorkspace, propname);
-    blk.getTopWorkspace = function() { return tempWorkspace; };
-    blk.getComponentDatabase = function() { return dummyComponentDb; };
-
-    // Handle Category Mapping
     var catname = blk['category'];
     if (catname) {
       var category = categories[catname];
-      if (!category) {
-        category = "";
-        categories[catname] = category;
-      }
+      if (!category) { category = ""; categories[catname] = category; }
       category = category.concat("<block type='" + propname + "'></block>");
       categories[catname] = category;
     }
     
-    // 4. Dispose safely
-    try {
-      blk.dispose();
-    } catch (e) {
-      console.warn("RAM: Non-fatal error disposing temp block " + propname, e);
-    }
+    // Dispose safely with the warning handler shim active
+    blk.dispose();
   }
 }
 
@@ -1101,31 +1154,44 @@ function resetComponentInstances() {
 /**
  * Displays the quiz in the browser.
  */
+
 function renderQuiz(quizdata) {
+  
   if (DEBUG) console.log("RAM: renderQuiz()");
 
   var workspace = Blockly.getMainWorkspace();
-  
-  // DEBUG PRINTS
-  console.log("RAM: --- Rendering Debug ---");
-  console.log("RAM: Workspace exists:", !!workspace);
-  console.log("RAM: Global ComponentDatabase exists:", !!Blockly.ComponentDatabase);
-  if (workspace) {
-     workspace.getComponentDatabase = function() { return dummyComponentDb; };
-     console.log("RAM: Database attached to workspace:", !!workspace.getComponentDatabase());
-  }
-  else return;
-  console.log("RAM: Testing shim manually for Button.Click:", 
-              dummyComponentDb.getEventForType("Button", "Click"));
-  // ...
-  // 1. ATTACH SHIM
+  if (!workspace) return;
+
+  // --- 1. THE HANDSHAKE (Fixes the crash) ---
+  // We attach these IMMEDIATELY so that no console.log or block-init can fail.
   workspace.getComponentDatabase = function() { return dummyComponentDb; };
+  workspace.getProcedureMap = function() {
+    return {
+      getMenuItems: function() { return []; },
+      getProcedures: function() { return []; },
+      getProcedure: function() { return null; },
+      deleteProcedure: function() {}
+    };
+  };
+  workspace.getWarningHandler = function() {
+    return {
+      checkErrors: function() { return []; },
+      checkDisposedBlock: function() { return; },
+      updateWarning: function() { return; }
+    };
+  };
 
-  // 2. RESOLVE DATA (The fix for the "Keys available" error)
+  // --- 2. DEBUG LOGS ---
+  if (DEBUG) {
+    console.log("RAM: --- Rendering Debug ---");
+    console.log("RAM: Workspace exists:", !!workspace);
+    // Note: We check the return value of the function we just attached
+    console.log("RAM: Database attached to workspace:", !!workspace.getComponentDatabase());
+  }
+
+  // --- 3. DATA RESOLUTION (Your original logic) ---
   var actualData = quizdata;
-
-  // If quizdata is the whole library (has many keys) or is missing Xmltemplate
-  if (quizdata && !quizdata.Xmltemplate && !quizdata.xmltemplate) {
+  if (quizdata && !actualData.Xmltemplate && !actualData.xmltemplate) {
      var currentName = Blockly.Quizme.quizName;
      if (quizdata[currentName]) {
         actualData = quizdata[currentName];
@@ -1133,18 +1199,17 @@ function renderQuiz(quizdata) {
      }
   }
 
-  // Fallback: If we still don't have data, check the global library
   if (!actualData || (!actualData.Xmltemplate && !actualData.xmltemplate)) {
     var quizName = Blockly.Quizme.quizName;
     actualData = Blockly.Quizme[quizName];
   }
 
   if (!actualData) {
-    if (DEBUG) console.log("RAM: No valid quiz data found for " + Blockly.Quizme.quizName);
+    if (DEBUG) console.log("RAM: No valid quiz data found.");
     return;
   }
 
-  // 3. UPDATE UI
+  // --- 4. UI UPDATES (Your original logic) ---
   var quizquestion = maindocument.getElementById('quiz_question');
   if (quizquestion) {
     var mappings = actualData.VariableMappings || [];
@@ -1152,21 +1217,23 @@ function renderQuiz(quizdata) {
     quizquestion.innerHTML = mapQuizVariables(Blockly.Quizme, html, mappings);  
   }
 
-  // 4. GET XML TEXT
+  // --- 5. RENDER ---
   var xmlText = actualData.Xmltemplate || actualData.xmltemplate || actualData.xml;
-
-  // 5. RENDER
   if (xmlText && xmlText !== "undefined") {
     try {
       var xmlDom = Blockly.utils.xml.textToDom(xmlText);
       workspace.clear();
+      
+      // Final safety check: ensure the database is still there after clear()
+      workspace.getComponentDatabase = function() { return dummyComponentDb; };
+      
       Blockly.Xml.domToWorkspace(xmlDom, workspace);
       if (DEBUG) console.log("RAM: Blocks rendered successfully.");
     } catch (e) {
-      console.error("RAM: Error parsing XML: ", e);
+      console.error("RAM: Error during renderQuiz execution: ", e);
     }
   } else {
-    console.error("RAM: Missing XML in actualData object:", actualData);
+    console.error("RAM: Missing XML in actualData object.");
   }
 }
 
