@@ -20,6 +20,8 @@
 /**
  * @fileoverview Utility functions for managing quizzes in browser.
  * @author ram8647@gmail.com (Ralph Morelli)
+ * @author Beryl Hoffman (hoffmanb@elms.edu)
+ * Feb. 2026 updated with new Blockly 
  */
 
 
@@ -98,35 +100,40 @@ var maindocument = parent.document;
 var MAX_TRIES = 6;
 var answer_tries = 0;     //  How many wrong answers
 
-// This forces EVERY workspace to use our shim, even temporary ones created during XML parsing
-// Ensure Blockly.Quizme exists before we start adding to it
-Blockly.Quizme = Blockly.Quizme || {};
-
 /**
- * THE REPAIR: This fixes the 'Click of undefined' error without breaking Blockly.hello
+ * THE REPAIR: Ensures any object (Block or Workspace) that needs the 
+ * component database can find it.
  */
-function applyGlobalShim() {
-  if (Blockly.Workspace && !Blockly.Workspace.prototype.getComponentDatabase) {
-    Object.defineProperty(Blockly.Workspace.prototype, 'getComponentDatabase', {
-      value: function() { return dummyComponentDb; },
-      writable: true,
-      configurable: true
-    });
-  }
-  // Standard global aliases
-  Blockly.getComponentDatabase = function() { return dummyComponentDb; };
-  Blockly.ComponentDatabase = dummyComponentDb;
-}
+(function() {
+    // 1. Shim the Workspace
+    if (typeof Blockly !== 'undefined' && Blockly.Workspace) {
+        Blockly.Workspace.prototype.getComponentDatabase = function() {
+            return dummyComponentDb;
+        };
+    }
 
-// Call it immediately
-applyGlobalShim();
+    // 2. Shim the Block - THIS FIXES 'getTopWorkspace' crashes
+    if (typeof Blockly !== 'undefined' && Blockly.Block) {
+        Blockly.Block.prototype.getComponentDatabase = function() {
+            return dummyComponentDb;
+        };
+    }
 
-// RE-EXPOSE HELLO: Ensure this is explicitly attached to the global Blockly
+    // 3. Global aliases
+    if (typeof Blockly !== 'undefined') {
+        Blockly.getComponentDatabase = function() { return dummyComponentDb; };
+        Blockly.ComponentDatabase = dummyComponentDb;
+        if (Blockly.common) {
+            Blockly.common.getComponentDatabase = function() { return dummyComponentDb; };
+        }
+    }
+})();
+
+// RE-EXPOSE HELLO: Immediately define this so the HTML can find it
 Blockly.hello = function(quizname) {
   if (DEBUG) console.log("RAM: Blockly.hello called for " + quizname);
   showQuiz(quizname);
 };
-
 
 
 // This makes the shim available to the internal blockly-all.js logic
@@ -814,21 +821,48 @@ function initToolboxBuiltins(language, categories) {
     if (propname == 'Utilities' || TOPLEVEL_BLOCKS.indexOf(propname) != -1)
       continue;
 
-    // Use a tempWorkspace so that procedure def blocks are not set to visible.
+    // 1. Create the temp workspace
     var tempWorkspace = new Blockly.Workspace();
-    tempWorkspace.svgBlockCanvas_ = Blockly.getMainWorkspace().getCanvas();
-    var blk = new Blockly.Block(tempWorkspace, propname);
+    
+    // 2. SHIM THE WARNING HANDLER: This prevents the crash on blk.dispose()
+    tempWorkspace.getWarningHandler = function() {
+      return {
+        checkErrors: function() { return []; },
+        checkDisposedBlock: function() { return; }, // This fixes your current crash
+        updateWarning: function() { return; }
+      };
+    };
 
-    // If this block has a category, append the category name to category list.
+    // Attach our other shims
+    tempWorkspace.getComponentDatabase = function() { return dummyComponentDb; };
+    
+    var mainWs = Blockly.getMainWorkspace();
+    if (mainWs) {
+      tempWorkspace.svgBlockCanvas_ = mainWs.getCanvas();
+    }
+
+    // 3. Create the block and apply local fixes
+    var blk = new Blockly.Block(tempWorkspace, propname);
+    blk.getTopWorkspace = function() { return tempWorkspace; };
+    blk.getComponentDatabase = function() { return dummyComponentDb; };
+
+    // Handle Category Mapping
     var catname = blk['category'];
     if (catname) {
       var category = categories[catname];
-      if (!category) {            // If no such category yet
+      if (!category) {
         category = "";
-        categories[catname] = category; // Start one, initially blank
+        categories[catname] = category;
       }
       category = category.concat("<block type='" + propname + "'></block>");
       categories[catname] = category;
+    }
+    
+    // 4. Dispose safely
+    try {
+      blk.dispose();
+    } catch (e) {
+      console.warn("RAM: Non-fatal error disposing temp block " + propname, e);
     }
   }
 }
@@ -1880,23 +1914,28 @@ Blockly.Quizme.evaluateStatement = function(helperObj) {
  * @param str is a string contain attribute expressions such as x="85"
  *  and y="100".  These are removed and the resulting string returned.
  */
-Blockly.Quizme.removeXY = function(str) {
-  var startX = str.indexOf("x=");
-  var endX = str.indexOf('"', startX+3);
-  while (startX != -1) {
-    str = str.substring(0, startX) + str.substring(endX+1);
-    startX = str.indexOf("x=");
-    endX = str.indexOf('"', startX+3);
+Blockly.Quizme.removeXY = function(xml) {
+  // If xml is undefined or null, return an empty string to prevent the indexOf crash
+  if (!xml || typeof xml !== 'string') {
+     if (DEBUG) console.warn("RAM: removeXY received invalid XML:", xml);
+    // Return a random string that will NEVER match the other side
+    return "ERROR_INVALID_XML_" + Math.random();
   }
-  var startY = str.indexOf("y=");
-  var endY = str.indexOf('"', startY+3);
-  while (startY != -1) {
-    str = str.substring(0, startY) + str.substring(endY+1);
-    startY = str.indexOf("y=");
-    endY = str.indexOf('"', startY+3);
+
+  var res = xml;
+  // Existing logic...
+  while (res.indexOf(' x="') != -1) {
+    var i = res.indexOf(' x="');
+    var j = res.indexOf('"', i + 4);
+    res = res.substring(0, i) + res.substring(j + 1);
   }
-  return str;
-}
+  while (res.indexOf(' y="') != -1) {
+    var i = res.indexOf(' y="');
+    var j = res.indexOf('"', i + 4);
+    res = res.substring(0, i) + res.substring(j + 1);
+  }
+  return res;
+};
 
 /**
  * Removes the block IDs from the str
