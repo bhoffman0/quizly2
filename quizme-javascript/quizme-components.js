@@ -101,9 +101,10 @@ Blockly.Quizme.addComponent = function(json, name, uid) {
     Blockly.ComponentTypes[typeName].methodDictionary[method.name] = method;
   }
 
-  // 3. Map Properties (from both 'properties' and 'blockProperties' arrays)
-  // COMBINE BOTH LISTS (Designer properties + Block properties)
-  var allProps = (prototype.properties || []).concat(prototype.blockProperties || []);
+  // 3. Map Properties — use blockProperties (the block-visible set).
+  // Designer-only 'properties' are a subset of blockProperties and
+  // combining both lists caused every overlapping property to appear twice.
+  var allProps = prototype.blockProperties || prototype.properties || [];
 
   for (var k = 0; k < allProps.length; k++) {
     var prop = allProps[k];
