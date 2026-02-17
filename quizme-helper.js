@@ -61,6 +61,10 @@
 
 //goog.require('Blockly.Quizme');
 
+// Blockly.Quizme is fully initialized by quizme.js, which loads AFTER this file.
+// Create the namespace early so property assignments below don't crash.
+Blockly.Quizme = Blockly.Quizme || {};
+
 var ED_X = GLOBAL_ED_X;  // GLOBAL_ED_X set in blockly.html;
 var DEBUG = GLOBAL_DEBUG;   // GLOBAL_DEBUG set in blockly,html
 var SELECTOR_OPTION = 'selector';
@@ -193,26 +197,40 @@ var dummyComponentDb = {
   };
 },
   getType: function(instanceName) {
-    return instanceName ? instanceName.replace(/[0-9]/g, '') : '';
+    var typeName = instanceName ? instanceName.replace(/[0-9]/g, '') : '';
+    if (Blockly.ComponentTypes && Blockly.ComponentTypes[instanceName]) {
+      return Blockly.ComponentTypes[instanceName];
+    } else if (Blockly.ComponentTypes && Blockly.ComponentTypes[typeName]) {
+      return Blockly.ComponentTypes[typeName];
+    }
+    return null;
   },
   getComponentNamesByType: function(typeName) {
     return [[typeName + "1", typeName + "1"]];
   },
 
-  // Ensure these return localized names if asked (fallback to key)
-  getInternationalizedPropertyName: function(typeName, propName) {
-    return propName;
-  },
-  
-  // FIX: Added the rest of the family to prevent the next errors  
+  // Internationalization stubs - signatures must match how blockly-all.js calls them
+  // Name functions: called with 1 arg (the name string)
+  getInternationalizedPropertyName: function(propName) { return propName; },
   getInternationalizedEventName: function(name) { return name; },
   getInternationalizedMethodName: function(name) { return name; },
-  getInternationalizedMethodDescription: function(name) { return name; },
-  getInternationalizedPropertyDescription: function(name) { return name; },
   getInternationalizedParameterName: function(name) { return name; },
   getInternationalizedOptionName: function(key, name) { return name; },
-  getInternationalizedEventDescription: function(name) { return name; },
+  // Description functions: called with 3 args (typeName, memberName, description)
+  getInternationalizedEventDescription: function(typeName, eventName, desc) { return desc || eventName || typeName; },
+  getInternationalizedMethodDescription: function(typeName, methodName, desc) { return desc || methodName || typeName; },
+  getInternationalizedPropertyDescription: function(typeName, propName, desc) { return desc || propName || typeName; },
+  getInternationalizedOptionListTag: function(tag) { return tag; },
+  getInternationalizedComponentType: function(typeName) { return typeName; },
   getOptionList: function(key) { return { options: [], tag: "" }; },
+  hasType: function(type) {
+    return !!(Blockly.ComponentTypes && Blockly.ComponentTypes[type]);
+  },
+  getFilter: function(key) { return []; },
+  getComponentTypes: function() {
+    if (!Blockly.ComponentTypes) return [];
+    return Object.keys(Blockly.ComponentTypes).map(function(k) { return [k, k]; });
+  },
   hasInstance: function(name) { return true; 
   }
 };
@@ -371,41 +389,30 @@ Blockly.Variables.allVariables = function(root) {
 };
 
 // 3. Fix workspaceToCode crash (Handle missing argument)
-// Old code calls workspaceToCode() with no args. New code requires workspaceToCode(workspace).
-var originalWorkspaceToCode = Blockly.JavaScript.workspaceToCode;
-Blockly.JavaScript.workspaceToCode = function(opt_workspace) {
-    // If no workspace provided, default to the main one
+// NOTE: Blockly.JavaScript is created by javascript.js which loads AFTER this file.
+// Guard to prevent crashing the entire script. All callers already pass workspace explicitly.
+if (Blockly.JavaScript) {
+  var originalWorkspaceToCode = Blockly.JavaScript.workspaceToCode;
+  Blockly.JavaScript.workspaceToCode = function(opt_workspace) {
+      var workspace = opt_workspace || Blockly.common.getMainWorkspace();
+      if (!workspace || typeof workspace.getTopBlocks !== 'function') {
+          workspace = Blockly.common.getMainWorkspace();
+      }
+      return originalWorkspaceToCode.call(this, workspace);
+  };
+
+  // 4. Fix "Deprecated call..." (CORRECTED ORDER)
+  var originalJsInit = Blockly.JavaScript.init;
+  Blockly.JavaScript.init = function(opt_workspace) {
     var workspace = opt_workspace || Blockly.common.getMainWorkspace();
-    
-    // Safety check: ensure it is actually a workspace object
-    if (!workspace || typeof workspace.getTopBlocks !== 'function') {
-        console.warn("workspaceToCode called with invalid workspace. Defaulting to main.");
-        workspace = Blockly.common.getMainWorkspace();
+    if (originalJsInit) {
+        originalJsInit.call(this, workspace);
     }
-
-    // Call the original function with the valid workspace
-    return originalWorkspaceToCode.call(this, workspace);
-};
-
-// --- SHIM CONTINUED ---
-
-// 4. Fix "Deprecated call..." (CORRECTED ORDER)
-var originalJsInit = Blockly.JavaScript.init;
-
-Blockly.JavaScript.init = function(opt_workspace) {
-  var workspace = opt_workspace || Blockly.common.getMainWorkspace();
-
-  // 1. Call original init FIRST (which might reset the nameDB_)
-  if (originalJsInit) {
-      originalJsInit.call(this, workspace);
-  }
-
-  // 2. Connect the name database to the map AFTERWARDS
-  // This ensures we attach to the active database instance.
-  if (this.nameDB_ && workspace) {
-    this.nameDB_.setVariableMap(workspace.getVariableMap());
-  }
-};
+    if (this.nameDB_ && workspace) {
+      this.nameDB_.setVariableMap(workspace.getVariableMap());
+    }
+  };
+}
 
 // 5. Fix "Flydown" Crash (TypeError: Cannot read properties of null reading 'svgGroup_')
 // The "Flydown" (hover menu on variables) is broken in the new engine. 
@@ -459,7 +466,7 @@ if (Blockly.FieldDropdown) {
 // Bridge the old generator name to the new one
 if (!Blockly.JavaScript && typeof javascriptGenerator !== 'undefined') {
     Blockly.JavaScript = javascriptGenerator;
-} else if (!Blockly.JavaScript && Blockly.Generator && Blockly.Generator.get('JavaScript')) {
+} else if (!Blockly.JavaScript && Blockly.Generator && typeof Blockly.Generator.get === 'function' && Blockly.Generator.get('JavaScript')) {
     Blockly.JavaScript = Blockly.Generator.get('JavaScript');
 }
 

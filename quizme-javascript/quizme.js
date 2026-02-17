@@ -25,7 +25,7 @@
 
 var DEBUG = GLOBAL_DEBUG;   // GLOBAL_DEBUG set in blockly,html
 
-Blockly.Quizme = {};
+Blockly.Quizme = Blockly.Quizme || {};
 Blockly.Quizme.quiznames = [];
 Blockly.Quizme.quiznames_display = [];
 if (DEBUG) console.log(Blockly.Quizme);
