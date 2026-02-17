@@ -2100,6 +2100,8 @@ Blockly.Quizme.normalizeMutationAttrs = function(str) {
   if (!str || typeof str !== 'string') return str;
   str = str.replace(/ xmlns="http:\/\/www\.w3\.org\/1999\/xhtml"/g, '');
   str = str.replace(/ is_generic="false"/g, '');
+  // New Blockly omits inline attributes at default values, but old solution XML has them
+  str = str.replace(/ inline="(true|false)"/g, '');
   return str;
 };
 
