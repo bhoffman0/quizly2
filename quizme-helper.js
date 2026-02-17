@@ -419,16 +419,9 @@ if (Blockly.JavaScript) {
   };
 }
 
-// 5. Fix "Flydown" Crash (TypeError: Cannot read properties of null reading 'svgGroup_')
-// The "Flydown" (hover menu on variables) is broken in the new engine. 
-// We disable it here to prevent the crash.
-if (Blockly.FieldFlydown) {
-    Blockly.FieldFlydown.prototype.showFlydown_ = function() {
-        // Do nothing. This effectively disables the hover menu.
-        // You can still drag variable blocks from the toolbox.
-        return;
-    };
-}
+// 5. Flydown support: the disable-override has been removed.
+// Instead, LexicalVariablesPlugin.init(workspace) is called in the
+// Blockly.inject wrapper below to properly create the Flydown.
 
 // 6. Fix "Dropdowns not setting value" (Permissive Validation)
 // This forces dropdowns to accept any value, even if the validator fails.
@@ -466,6 +459,17 @@ if (Blockly.FieldDropdown) {
       // Initialize the procedure database (required by procedure call blocks)
       if (Blockly.ProcedureDatabase && !workspace.procedureDb_) {
         workspace.procedureDb_ = new Blockly.ProcedureDatabase(workspace);
+      }
+      // Initialize the LexicalVariablesPlugin to create the Flydown
+      try {
+        var lexPlugin = (typeof LexicalVariablesPlugin !== 'undefined') ? LexicalVariablesPlugin
+                      : (typeof top !== 'undefined' && top.LexicalVariablesPlugin) ? top.LexicalVariablesPlugin
+                      : null;
+        if (lexPlugin && lexPlugin.init && !workspace.flydown_) {
+          lexPlugin.init(workspace);
+        }
+      } catch(flydownErr) {
+        console.error('Flydown init failed:', flydownErr);
       }
       return workspace;
     };
