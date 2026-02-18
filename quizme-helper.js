@@ -20,8 +20,9 @@
 /**
  * @fileoverview Utility functions for managing quizzes in browser.
  * @author ram8647@gmail.com (Ralph Morelli)
- * @author Beryl Hoffman (hoffmanb@elms.edu)
  * Feb. 2026 updated with new Blockly 
+ * @author Beryl Hoffman (hoffmanb@elms.edu)
+ * @author Joe Mazzone
  */
 
 

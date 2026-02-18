@@ -1,10 +1,9 @@
 # Quizly2
 
-This is an updated version of Quizly from https://github.com/ram8647/quizly created by Ralph Morelli. Ralph's version broke in 2026 due to a Chrome update that did not allow blocks to be dragged in. This new version is updated to use a more current Blockly that doesn't have this problem.
+This is an updated version of Quizly from https://github.com/ram8647/quizly created by Ralph Morelli. Ralph's version broke in 2026 due to a Chrome update that did not allow blocks to be dragged in. This new version is updated by Beryl Hoffman and Joe Mazzone and some AI help to use a more current Blockly that doesn't have this problem.
 
 The new version of Blockly in blockly-all.js was built from https://github.com/mit-cml/appinventor-sources/tree/master/appinventor/blocklyeditor.
 
-There are still some errors with components!
 
 Quizly is a live coding platform for <a target="_blank" href="http://appinventor.mit.edu">App Inventor</a> that is
 based on <a target="_blank" href="https://developers.google.com/blockly/">Blockly</a>. For example, 
